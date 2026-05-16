@@ -128,6 +128,22 @@
     .days-input:focus { border-color: var(--gold); }
     .days-input.invalid { border-color: #c0392b; }
 
+    input[type="number"] {
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    input[type="date"] {
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
     .days-hint {
       font-size: 11px;
       color: #c0392b;
@@ -548,6 +564,11 @@ const NT_CHRON = [
 const FULL_CHRON = [...OT_CHRON, ...NT_CHRON];
 
 const ALL_CHAPTERS = { ...OT_CHAPTERS, ...NT_CHAPTERS };
+const CORPUS_MAX = {
+  OT:   OT_SEQ.reduce((s, b) => s + OT_CHAPTERS[b], 0),
+  NT:   NT_SEQ.reduce((s, b) => s + NT_CHAPTERS[b], 0),
+  Full: FULL_SEQ.reduce((s, b) => s + ALL_CHAPTERS[b], 0)
+};
 
 function getOrder(corpus, order) {
   if (corpus === 'OT') return order === 'sequential' ? OT_SEQ   : OT_CHRON;
@@ -615,7 +636,12 @@ function loadPlans() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) return arr;
+      if (Array.isArray(arr)) {
+        arr.forEach(plan => {
+          plan.progress = Array.from({ length: plan.days }, (_, i) => !!plan.progress[i]);
+        });
+        return arr;
+      }
     }
   } catch(e) {}
   return [];
@@ -632,6 +658,13 @@ document.getElementById('corpus-group').addEventListener('click', e => {
   builderCorpus = btn.dataset.corpus;
   document.querySelectorAll('#corpus-group .toggle-btn')
     .forEach(b => b.classList.toggle('active', b === btn));
+  daysInput.max = CORPUS_MAX[builderCorpus];
+  // Re-validate current value against new max
+  const v = parseInt(daysInput.value, 10);
+  const valid = !isNaN(v) && v >= 7 && v <= CORPUS_MAX[builderCorpus];
+  daysInput.classList.toggle('invalid',  daysInput.value !== '' && !valid);
+  daysHint.classList.toggle('visible',   daysInput.value !== '' && !valid);
+  createBtn.disabled = !valid;
 });
 
 document.getElementById('order-group').addEventListener('click', e => {
@@ -648,7 +681,7 @@ const createBtn = document.getElementById('create-btn');
 
 daysInput.addEventListener('input', () => {
   const v = parseInt(daysInput.value, 10);
-  const valid = !isNaN(v) && v >= 7 && v <= 365;
+  const valid = !isNaN(v) && v >= 7 && v <= CORPUS_MAX[builderCorpus];
   daysInput.classList.toggle('invalid',  daysInput.value !== '' && !valid);
   daysHint.classList.toggle('visible',   daysInput.value !== '' && !valid);
   createBtn.disabled = !valid;
@@ -662,7 +695,7 @@ function autoName(corpus, order, days) {
 
 function createPlan() {
   const days = parseInt(daysInput.value, 10);
-  if (isNaN(days) || days < 7 || days > 365) return;
+  if (isNaN(days) || days < 7 || days > CORPUS_MAX[builderCorpus]) return;
   const nameVal = document.getElementById('name-input').value.trim();
   const name    = nameVal || autoName(builderCorpus, builderOrder, days);
   const plan = {
@@ -689,6 +722,7 @@ function expandBuilder() {
   builderOrder  = 'sequential';
   document.querySelectorAll('#corpus-group .toggle-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
   document.querySelectorAll('#order-group .toggle-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
+  daysInput.max = CORPUS_MAX[builderCorpus];
   daysInput.value = '';
   daysInput.classList.remove('invalid');
   daysHint.classList.remove('visible');
@@ -926,14 +960,29 @@ function renderCards() {
     const card = document.createElement('div');
     card.className = 'day-card' + (isDone ? ' done' : '') + (isToday ? ' today' : '');
 
-    const dayLabel = isToday
-      ? `<strong style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;">Today</strong>`
-      : `Day ${d + 1}`;
+    const dayNumDiv = document.createElement('div');
+    dayNumDiv.className = 'day-num';
+    if (isToday) {
+      const strong = document.createElement('strong');
+      strong.style.cssText = 'font-size:11px;letter-spacing:.05em;text-transform:uppercase;';
+      strong.textContent = 'Today';
+      dayNumDiv.appendChild(strong);
+    } else {
+      dayNumDiv.textContent = `Day ${d + 1}`;
+    }
 
-    card.innerHTML =
-      `<div class="day-num">${dayLabel}</div>` +
-      `<div class="chapters">${label}</div>` +
-      `<span class="check" aria-hidden="true">✓</span>`;
+    const chapDiv = document.createElement('div');
+    chapDiv.className = 'chapters';
+    chapDiv.textContent = label;
+
+    const checkSpan = document.createElement('span');
+    checkSpan.className = 'check';
+    checkSpan.setAttribute('aria-hidden', 'true');
+    checkSpan.textContent = '✓';
+
+    card.appendChild(dayNumDiv);
+    card.appendChild(chapDiv);
+    card.appendChild(checkSpan);
 
     card.onclick = () => {
       plan.progress[d] = !plan.progress[d];
@@ -946,7 +995,7 @@ function renderCards() {
     if (isToday) todayCard = card;
   });
 
-  if (todayCard && !scrolledToToday && !q) {
+  if (todayCard && !scrolledToToday) {
     scrolledToToday = true;
     setTimeout(() => todayCard.scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
   }
